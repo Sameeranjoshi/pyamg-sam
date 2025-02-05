@@ -1,5 +1,5 @@
 import warnings
-import scipy
+import scipy.sparse.linalg as spla
 
 import numpy as np
 
@@ -183,14 +183,18 @@ from pyamg.classical.interpolate import direct_interpolation, \
 # solver testing independetly
 
 # 1. Solve -> solve - no brainer. use any solver, the solve phase matters.
-
+# 1. input
+# 2. config
+# 3. solver
+# 4. solve
+# 5. assert
 
 
 def test_rs_baseline(A, x, b):
 
       # 2. config
       ruge_stuben_config = {
-            'strength': ('classical', {'theta': 0.25}),  # Method to determine connection strength
+            'strength': ('classical', {'theta': 0.5}),  # Method to determine connection strength
             'CF': ('RS', {'second_pass': False}),  # Coarse grid selection method
             'interpolation': 'classical',  # Interpolation method
             'presmoother': ('gauss_seidel', {'sweep': 'symmetric'}),  # Presmoother method
@@ -198,29 +202,33 @@ def test_rs_baseline(A, x, b):
             'max_levels': 30,  # Maximum levels
             'max_coarse': 10,  # Maximum number of variables on coarse grid
             'keep': False,  # Flag to keep strength in hierarchy for diagnostics
-            'coarse_solver': 'cg',  # Coarse solver method (default)
+            'coarse_solver': 'splu',  # Coarse solver method (default)
       }
 
       # 3. solver
       ml = ruge_stuben_solver(A, **ruge_stuben_config)
       # 4. solve
       residual = []
-      x_sol = ml.solve(b, x0=x, maxiter=20, tol=1e-12,
-                              residuals=residual)
+      solve_config = {
+            'maxiter': 20,
+            'cycle': 'V',
+            'residuals': residual,
+            'tol': 1e-12,
+      }
+      x_sol = ml.solve(b, x0=x, **solve_config)
       # 5. assert
       r = b - A*x_sol
       rho = np.dot(r, r)
       return x_sol, rho
 
-def test_cg_scipy(A, x, b):
+def test_direct_solver_scipy(A, x, b):
 
-      x_sol, _ = scipy.sparse.linalg.cg(A, b, x0=x, rtol=1e-12, maxiter=20)
+      x_sol = spla.spsolve(A, b)
 
       r = b - A*x_sol
       rho = np.dot(r, r)
       return x_sol, rho
 
-      
 case = (250, 250)    #2d
 # 1. input 
 A = poisson(case, format='csr')
@@ -228,12 +236,15 @@ np.random.seed(0)  # make tests repeatable
 x = np.random.rand(A.shape[0])
 b = A*np.random.rand(A.shape[0])  # zeros_like(x)
 
+# call
 x1, r1 = test_rs_baseline(A, x, b)
-x2, r2 = test_cg_scipy(A, x, b)
+x3, r3 = test_direct_solver_scipy(A, x, b)
 
-print("rho1: ", r1)
-print("rho2: ", r2)
+
+
 # assert testing
-np.testing.assert_allclose(x1, x2, rtol=1e-5)
+np.testing.assert_allclose(x1, x3, rtol=1e-5)
 print("equal")
 
+print("rho1: ", r1)
+print("rho3: ", r3)
