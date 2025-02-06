@@ -214,8 +214,47 @@ def test_rs_baseline(A, x, b):
             'cycle': 'V',
             'residuals': residual,
             'tol': 1e-12,
+            'accel': None,
+            'callback': None,
+            'cycles_per_level': 1,
+            'return_info': False,
       }
       x_sol = ml.solve(b, x0=x, **solve_config)
+      # 5. assert
+      r = b - A*x_sol
+      rho = np.dot(r, r)
+      return x_sol, rho
+
+def test_rs_modified_v_cycle(A, x, b):
+      
+      # 2. config
+      ruge_stuben_config = {
+            'strength': ('classical', {'theta': 0.5}),  # Method to determine connection strength
+            'CF': ('RS', {'second_pass': False}),  # Coarse grid selection method
+            'interpolation': 'classical',  # Interpolation method
+            'presmoother': ('gauss_seidel', {'sweep': 'symmetric'}),  # Presmoother method
+            'postsmoother': ('gauss_seidel', {'sweep': 'symmetric'}),  # Postsmoother method
+            'max_levels': 30,  # Maximum levels
+            'max_coarse': 10,  # Maximum number of variables on coarse grid
+            'keep': False,  # Flag to keep strength in hierarchy for diagnostics
+            'coarse_solver': 'splu',  # Coarse solver method (default)
+      }
+
+      # 3. solver
+      ml = ruge_stuben_solver(A, **ruge_stuben_config)
+      # 4. solve
+      residual = []
+      solve_config = {
+            'maxiter': 20,
+            'cycle': 'V',
+            'residuals': residual,
+            'tol': 1e-12,
+            'accel': None,
+            'callback': None,
+            'cycles_per_level': 1,
+            'return_info': False,
+      }
+      x_sol = ml.solve_3_phase_cycle(b, x0=x, **solve_config)
       # 5. assert
       r = b - A*x_sol
       rho = np.dot(r, r)
@@ -237,14 +276,20 @@ x = np.random.rand(A.shape[0])
 b = A*np.random.rand(A.shape[0])  # zeros_like(x)
 
 # call
-x1, r1 = test_rs_baseline(A, x, b)
-x3, r3 = test_direct_solver_scipy(A, x, b)
-
+x1, r1 = test_rs_baseline(A, x, b)  # baseline no changes
+x2, r2 = test_rs_modified_v_cycle(A, x, b)      # split into 3 phases
+x3, r3 = test_direct_solver_scipy(A, x, b)      # direct solver
 
 
 # assert testing
 np.testing.assert_allclose(x1, x3, rtol=1e-5)
-print("equal")
+# baseline and modified v cycle should be equal
+np.testing.assert_allclose(x1, x2, rtol=1e-5)
+# also the modified should be equal to direct solver
+np.testing.assert_allclose(x2, x3, rtol=1e-5)
 
-print("rho1: ", r1)
-print("rho3: ", r3)
+print("All equal")
+
+print("rho1: ", r1, "(baseline pyamg)")
+print("rho2: ", r2, "(3 phase cycle)")
+print("rho3: ", r3, "(direct solver)")
