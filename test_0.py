@@ -15,7 +15,9 @@ from pyamg.classical import split
 from pyamg.classical.classical import ruge_stuben_solver
 from pyamg.classical.interpolate import direct_interpolation, \
     classical_interpolation
-    
+import numpy as np
+from numpy import linalg as LA
+
 
 # print("################Test 1 basic################")
 # # Test 1
@@ -190,7 +192,55 @@ from pyamg.classical.interpolate import direct_interpolation, \
 # 5. assert
 
 
+
+def conjugateGradient(A, b, x0, max_ite, tol):
+  print("Called from - cg.py")
+  k = 0
+  x = np.copy(x0)
+  # r0 = b - A*x0
+  y = A.dot(x)
+  r = b - y
+  # rho = |r0|^2
+  rho = np.dot(r,r)
+  print(f"[CG] iter {k}: rho = {rho}")
+  while ( (rho > tol*tol) and (k < max_ite) ):
+    k = k + 1
+    if k == 1:
+      # p1 = r0
+      p = r
+    else:
+      # beta_{k} = |r_{k-1}|^2/|r_{k-2}|^2
+      beta = rho/rho_old
+      # p_{k} = r_{k-1} + beta_{k} * p_{k-1}
+      p = r + beta * p
+    # alpha_{k} = |r_{k-1}|^2/<p_{k}, A*p_{k}>
+    w = A.dot(p)  # w = A*p_{k}
+    eta = np.dot(p,w) # eta = <p_{k}, A*p_{k}>
+    alpha = rho/eta
+    # x_{k} = x_{k-1} + alpha_{k} * p_{k}
+    x = x + alpha * p
+    # r_{k} = r_{k-1} - alpha_{k} * A*p_{k}
+    r = r - alpha * w
+    # update rho 
+    rho_old = rho
+    rho = np.dot(r,r)
+    print(f"[CG] iter {k}: rho = {rho}")
+  return x
+
+def test_direct_solver_scipy(A, b, x):
+
+      x_sol = spla.spsolve(A, b)
+
+      r = b - A*x_sol
+      rho = np.dot(r, r)
+      return x_sol
+
 def test_rs_baseline(A, x, b):
+
+      # coarse_solver_callable = 'cg'
+      # coarse_solver_callable = test_direct_solver_scipy   # foo(A,b) -> x
+      coarse_solver_callable = (test_direct_solver_scipy, {"x": x})
+      # coarse_solver_callable = (conjugateGradient, {"x0": x, "max_ite": 20, "tol": 1e-12})
 
       # 2. config
       ruge_stuben_config = {
@@ -202,11 +252,12 @@ def test_rs_baseline(A, x, b):
             'max_levels': 30,  # Maximum levels
             'max_coarse': 10,  # Maximum number of variables on coarse grid
             'keep': False,  # Flag to keep strength in hierarchy for diagnostics
-            'coarse_solver': 'splu',  # Coarse solver method (default)
+            'coarse_solver': coarse_solver_callable  # Coarse solver method (default)
       }
 
       # 3. solver
       ml = ruge_stuben_solver(A, **ruge_stuben_config)
+      print(ml)
       # 4. solve
       residual = []
       solve_config = {
@@ -237,7 +288,7 @@ def test_rs_modified_v_cycle(A, x, b):
             'max_levels': 30,  # Maximum levels
             'max_coarse': 10,  # Maximum number of variables on coarse grid
             'keep': False,  # Flag to keep strength in hierarchy for diagnostics
-            'coarse_solver': 'splu',  # Coarse solver method (default)
+            'coarse_solver': 'cg',  # Coarse solver method (default)
       }
 
       # 3. solver
@@ -260,14 +311,6 @@ def test_rs_modified_v_cycle(A, x, b):
       rho = np.dot(r, r)
       return x_sol, rho
 
-def test_direct_solver_scipy(A, x, b):
-
-      x_sol = spla.spsolve(A, b)
-
-      r = b - A*x_sol
-      rho = np.dot(r, r)
-      return x_sol, rho
-
 case = (250, 250)    #2d
 # 1. input 
 A = poisson(case, format='csr')
@@ -278,7 +321,7 @@ b = A*np.random.rand(A.shape[0])  # zeros_like(x)
 # call
 x1, r1 = test_rs_baseline(A, x, b)  # baseline no changes
 x2, r2 = test_rs_modified_v_cycle(A, x, b)      # split into 3 phases
-x3, r3 = test_direct_solver_scipy(A, x, b)      # direct solver
+x3 = test_direct_solver_scipy(A, b, x)      # direct solver
 
 
 # assert testing
@@ -292,4 +335,4 @@ print("All equal")
 
 print("rho1: ", r1, "(baseline pyamg)")
 print("rho2: ", r2, "(3 phase cycle)")
-print("rho3: ", r3, "(direct solver)")
+# print("rho3: ", r3, "(direct solver)")
